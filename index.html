@@ -85,12 +85,12 @@
             <div class="table-wrap">
               <table>
                 <thead>
-                  <tr><th>이름</th><th>소속</th><th>직위</th><th>이메일</th><th>휴대폰번호</th><th>최근참여일</th></tr>
+                  <tr><th>최종 결정<br><small>불가 시 체크</small></th><th>이름</th><th>소속</th><th>직위</th><th>이메일</th><th>휴대폰번호</th><th>최근참여일</th></tr>
                 </thead>
-                <tbody id="resultBody"><tr><td colspan="6" class="empty">아직 선정 결과가 없습니다.</td></tr></tbody>
+                <tbody id="resultBody"><tr><td colspan="7" class="empty">아직 선정 결과가 없습니다.</td></tr></tbody>
               </table>
             </div>
-            <button id="saveResultBtn" class="btn secondary wide hidden">결과값 저장하기</button>
+            <div class="result-actions"><button id="replaceUnavailableBtn" class="btn ghost wide hidden">체크 인원만큼 추가선정</button><button id="saveResultBtn" class="btn secondary wide hidden">결과값 저장하기</button></div>
           </section>
         </div>
       </section>
@@ -134,7 +134,7 @@
 
   <dialog id="onboardingModal" class="modal">
     <form method="dialog" class="modal-card">
-      <div class="section-title"><span>XLSX</span><div><h2>최초 임직원 목록 입력</h2><p>첫 로그인 후 한 번만 표시됩니다. 엑셀 파일은 이름, 소속, 직위, 이메일 순서로 읽습니다.</p></div></div>
+      <div class="section-title"><span>XLSX</span><div><h2>최초 임직원 목록 입력</h2><p>로그인 직후 표시됩니다. 올바른 엑셀 파일을 저장해야 닫힙니다. 엑셀 파일은 이름, 소속, 직위, 이메일 순서로 읽습니다.</p></div></div>
       <label class="dropzone">XLSX 파일 선택
         <input id="initialCsvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
       </label>
