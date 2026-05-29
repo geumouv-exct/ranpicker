@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="copyrightBadge" class="copyright-badge">@ikkkki AT Paris</div>
+
   <div id="toast" class="toast hidden"></div>
 
   <header class="topbar">
@@ -35,6 +37,211 @@
         <button id="heroGuestLoginBtn" class="btn secondary big">게스트로 보기</button>
       </div>
     </section>
+
+    <section id="appView" class="hidden">
+      <nav class="tabs">
+        <button class="tab active" data-tab="randomTab">랜덤설정</button>
+        <button class="tab" data-tab="poolTab">Pool</button>
+        <button class="tab" data-tab="historyTab">마이페이지 · 이력관리</button>
+      </nav>
+
+      <section id="readonlyNotice" class="notice hidden">
+        현재 계정은 수정 권한이 없어 조회만 가능합니다. XLSX 업로드, Pool 수정, 랜덤 선정 저장은 회사 공용 Gmail 계정으로 로그인한 사용자만 가능합니다.
+      </section>
+
+      <section id="randomTab" class="panel active">
+        <div class="grid two">
+          <form id="randomForm" class="card form-card">
+            <div class="section-title">
+              <span>1</span>
+              <div>
+                <h2>랜덤설정</h2>
+                <p>조건에 맞는 임직원 중 지정한 인원만큼 무작위 선정합니다.</p>
+              </div>
+            </div>
+
+            <label>사업명
+              <input id="projectName" type="text" placeholder="예: 2026년 상반기 평가위원 선정" required />
+            </label>
+            <label>평가일
+              <input id="evaluationDate" type="date" required />
+            </label>
+            <label>추출 인원 수
+              <input id="pickCount" type="number" min="1" step="1" placeholder="예: 5" required />
+            </label>
+            <label>최근참여 제외일수
+              <input id="excludeDays" type="number" min="1" step="1" placeholder="예: 10" required />
+            </label>
+            <button id="drawBtn" type="submit" class="btn primary wide">랜덤 선정하기</button>
+          </form>
+
+          <section class="card result-card">
+            <div class="section-title">
+              <span>✓</span>
+              <div>
+                <h2>선정 결과</h2>
+                <p>선정 후 저장하면 참여횟수와 최근참여일이 자동 갱신됩니다.</p>
+              </div>
+            </div>
+            <div id="resultMeta" class="meta"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>최종 결정<br><small>불가 시 체크</small></th>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>직위</th>
+                    <th>이메일</th>
+                    <th>휴대폰번호</th>
+                    <th>최근참여일</th>
+                  </tr>
+                </thead>
+                <tbody id="resultBody">
+                  <tr><td colspan="7" class="empty">아직 선정 결과가 없습니다.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="result-actions">
+              <button id="replaceUnavailableBtn" class="btn ghost wide hidden">체크 인원만큼 추가선정</button>
+              <button id="saveResultBtn" class="btn secondary wide hidden">결과값 저장하기</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="poolTab" class="panel">
+        <div class="card">
+          <div class="section-title between">
+            <div class="with-icon">
+              <span>0</span>
+              <div>
+                <h2>Pool 초기값 및 수정</h2>
+                <p>이름, 소속, 직위, 이메일, 활성여부, 참여횟수, 최근참여일을 관리합니다.</p>
+              </div>
+            </div>
+            <label class="btn secondary file-label">
+              XLSX 다시 가져오기
+              <input id="csvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th>소속</th>
+                  <th>직위</th>
+                  <th>전화번호</th>
+                  <th>이메일</th>
+                  <th>활성여부</th>
+                  <th>참여횟수</th>
+                  <th>최근참여일</th>
+                  <th>수정</th>
+                </tr>
+              </thead>
+              <tbody id="poolBody">
+                <tr><td colspan="9" class="empty">Pool 데이터를 불러오는 중입니다.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="historyTab" class="panel">
+        <div class="grid history-grid">
+          <section class="card">
+            <div class="section-title">
+              <span>2</span>
+              <div>
+                <h2>사업명 목록</h2>
+                <p>사업명을 누르면 당시 선정 결과를 볼 수 있습니다.</p>
+              </div>
+            </div>
+            <div id="projectList" class="project-list"></div>
+          </section>
+          <section class="card">
+            <div class="section-title">
+              <span>↗</span>
+              <div>
+                <h2>사업별 선정 결과</h2>
+                <p id="historyMeta">사업을 선택해주세요.</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>직위</th>
+                    <th>이메일</th>
+                    <th>휴대폰번호</th>
+                    <th>최근참여일</th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody">
+                  <tr><td colspan="6" class="empty">표시할 결과가 없습니다.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="onboardingModal" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="section-title">
+        <span>XLSX</span>
+        <div>
+          <h2>최초 임직원 목록 입력</h2>
+          <p>로그인 직후 표시됩니다. 올바른 엑셀 파일을 저장해야 닫힙니다. 엑셀 파일은 이름, 소속, 직위, 이메일 순서로 읽습니다.</p>
+        </div>
+      </div>
+      <label class="dropzone">
+        XLSX 파일 선택
+        <input id="initialCsvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+      </label>
+      <div class="csv-help">
+        <strong>XLSX 열 순서</strong><br />
+        A열 이름 · B열 소속 · C열 직위 · D열 이메일<br />
+        첫 행이 제목행이면 자동으로 제외됩니다.
+      </div>
+      <button id="initialImportBtn" class="btn primary wide" type="button">초기값 저장</button>
+    </form>
+  </dialog>
+
+  <dialog id="editModal" class="modal">
+    <form id="editForm" class="modal-card">
+      <div class="section-title">
+        <span>수정</span>
+        <div>
+          <h2>임직원 정보 수정</h2>
+          <p>Pool에 저장된 초기값과 랜덤 포함 여부를 수정합니다.</p>
+        </div>
+      </div>
+      <input id="editId" type="hidden" />
+      <label>이름<input id="editName" required /></label>
+      <label>소속<input id="editDept" required /></label>
+      <label>직위<input id="editTitle" required /></label>
+      <label>전화번호<input id="editPhone" /></label>
+      <label>이메일<input id="editEmail" type="email" required /></label>
+      <label class="check"><input id="editActive" type="checkbox" /> 활성여부: 이번 랜덤설정에 포함</label>
+      <label>참여횟수<input id="editParticipationCount" type="number" min="0" step="1" /></label>
+      <label>최근참여일<input id="editLastParticipationDate" type="date" /></label>
+      <div class="actions">
+        <button type="button" id="cancelEditBtn" class="btn ghost">취소</button>
+        <button class="btn primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>    </section>
 
     <section id="appView" class="hidden">
       <nav class="tabs">
