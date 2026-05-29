@@ -7,10 +7,19 @@ service cloud.firestore {
     function isCompanyGmail() {
       return signedIn()
         && request.auth.token.email is string
-        // 아래 이메일을 실제 회사 공용 Gmail 주소로 교체하세요.
         && request.auth.token.email == 'byeori0713@gmail.com';
     }
 
+    match /workspaces/{workspaceId}/employees/{employeeId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isCompanyGmail();
+    }
+    match /workspaces/{workspaceId}/projects/{projectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isCompanyGmail();
+    }
+
+    // 이전 버전 호환용. 기존 root 컬렉션을 쓰고 있었다면 읽기/쓰기는 유지합니다.
     match /employees/{employeeId} {
       allow read: if signedIn();
       allow create, update, delete: if isCompanyGmail();
