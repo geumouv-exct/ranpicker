@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isCompanyGmail() {
+      return signedIn()
+        && request.auth.token.email is string
+        // 아래 이메일을 실제 회사 공용 Gmail 주소로 교체하세요.
+        && request.auth.token.email == 'byeori0713@gmail.com';
+    }
+
+    match /employees/{employeeId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isCompanyGmail();
+    }
+    match /projects/{projectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isCompanyGmail();
+    }
+  }
+}
