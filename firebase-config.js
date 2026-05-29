@@ -13,5 +13,7 @@ export const accessConfig = {
   // 실제 회사 공용 Gmail 주소로 반드시 교체해야 합니다.
   companyGmail: "byeori0713@gmail.com",
   allowedDomains: [],
-  adminEmails: ["byeori0713@gmail.com"]
+  adminEmails: ["byeori0713@gmail.com"],
+  // 같은 workspaceId를 쓰는 모든 컴퓨터/브라우저에서 동일한 Pool과 이력을 공유합니다.
+  workspaceId: "company"
 };
