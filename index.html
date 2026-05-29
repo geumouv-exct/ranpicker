@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fair Pick 랜덤 선정</title>
+  <title>Fair Pick</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -85,12 +85,25 @@
             <div class="table-wrap">
               <table>
                 <thead>
-                  <tr><th>최종 결정<br><small>불가 시 체크</small></th><th>이름</th><th>소속</th><th>직위</th><th>이메일</th><th>휴대폰번호</th><th>최근참여일</th></tr>
+                  <tr>
+                    <th>최종 결정<br><small>불가 시 체크</small></th>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>직위</th>
+                    <th>이메일</th>
+                    <th>휴대폰번호</th>
+                    <th>최근참여일</th>
+                  </tr>
                 </thead>
-                <tbody id="resultBody"><tr><td colspan="7" class="empty">아직 선정 결과가 없습니다.</td></tr></tbody>
+                <tbody id="resultBody">
+                  <tr><td colspan="7" class="empty">아직 선정 결과가 없습니다.</td></tr>
+                </tbody>
               </table>
             </div>
-            <div class="result-actions"><button id="replaceUnavailableBtn" class="btn ghost wide hidden">체크 인원만큼 추가선정</button><button id="saveResultBtn" class="btn secondary wide hidden">결과값 저장하기</button></div>
+            <div class="result-actions">
+              <button id="replaceUnavailableBtn" class="btn ghost wide hidden">체크 인원만큼 추가선정</button>
+              <button id="saveResultBtn" class="btn secondary wide hidden">결과값 저장하기</button>
+            </div>
           </section>
         </div>
       </section>
@@ -98,15 +111,36 @@
       <section id="poolTab" class="panel">
         <div class="card">
           <div class="section-title between">
-            <div class="with-icon"><span>0</span><div><h2>Pool 초기값 및 수정</h2><p>이름, 소속, 직위, 이메일, 활성여부, 참여횟수, 최근참여일을 관리합니다.</p></div></div>
-            <label class="btn secondary file-label">XLSX 다시 가져오기<input id="csvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden /></label>
+            <div class="with-icon">
+              <span>0</span>
+              <div>
+                <h2>Pool 초기값 및 수정</h2>
+                <p>이름, 소속, 직위, 이메일, 활성여부, 참여횟수, 최근참여일을 관리합니다.</p>
+              </div>
+            </div>
+            <label class="btn secondary file-label">
+              XLSX 다시 가져오기
+              <input id="csvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
+            </label>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>이름</th><th>소속</th><th>직위</th><th>전화번호</th><th>이메일</th><th>활성여부</th><th>참여횟수</th><th>최근참여일</th><th>수정</th></tr>
+                <tr>
+                  <th>이름</th>
+                  <th>소속</th>
+                  <th>직위</th>
+                  <th>전화번호</th>
+                  <th>이메일</th>
+                  <th>활성여부</th>
+                  <th>참여횟수</th>
+                  <th>최근참여일</th>
+                  <th>수정</th>
+                </tr>
               </thead>
-              <tbody id="poolBody"><tr><td colspan="9" class="empty">Pool 데이터를 불러오는 중입니다.</td></tr></tbody>
+              <tbody id="poolBody">
+                <tr><td colspan="9" class="empty">Pool 데이터를 불러오는 중입니다.</td></tr>
+              </tbody>
             </table>
           </div>
         </div>
@@ -115,15 +149,38 @@
       <section id="historyTab" class="panel">
         <div class="grid history-grid">
           <section class="card">
-            <div class="section-title"><span>2</span><div><h2>사업명 목록</h2><p>사업명을 누르면 당시 선정 결과를 볼 수 있습니다.</p></div></div>
+            <div class="section-title">
+              <span>2</span>
+              <div>
+                <h2>사업명 목록</h2>
+                <p>사업명을 누르면 당시 선정 결과를 볼 수 있습니다.</p>
+              </div>
+            </div>
             <div id="projectList" class="project-list"></div>
           </section>
           <section class="card">
-            <div class="section-title"><span>↗</span><div><h2>사업별 선정 결과</h2><p id="historyMeta">사업을 선택해주세요.</p></div></div>
+            <div class="section-title">
+              <span>↗</span>
+              <div>
+                <h2>사업별 선정 결과</h2>
+                <p id="historyMeta">사업을 선택해주세요.</p>
+              </div>
+            </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>이름</th><th>소속</th><th>직위</th><th>이메일</th><th>휴대폰번호</th><th>최근참여일</th></tr></thead>
-                <tbody id="historyBody"><tr><td colspan="6" class="empty">표시할 결과가 없습니다.</td></tr></tbody>
+                <thead>
+                  <tr>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>직위</th>
+                    <th>이메일</th>
+                    <th>휴대폰번호</th>
+                    <th>최근참여일</th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody">
+                  <tr><td colspan="6" class="empty">표시할 결과가 없습니다.</td></tr>
+                </tbody>
               </table>
             </div>
           </section>
@@ -134,8 +191,15 @@
 
   <dialog id="onboardingModal" class="modal">
     <form method="dialog" class="modal-card">
-      <div class="section-title"><span>XLSX</span><div><h2>최초 임직원 목록 입력</h2><p>로그인 직후 표시됩니다. 올바른 엑셀 파일을 저장해야 닫힙니다. 엑셀 파일은 이름, 소속, 직위, 이메일 순서로 읽습니다.</p></div></div>
-      <label class="dropzone">XLSX 파일 선택
+      <div class="section-title">
+        <span>XLSX</span>
+        <div>
+          <h2>최초 임직원 목록 입력</h2>
+          <p>로그인 직후 표시됩니다. 올바른 엑셀 파일을 저장해야 닫힙니다. 엑셀 파일은 이름, 소속, 직위, 이메일 순서로 읽습니다.</p>
+        </div>
+      </div>
+      <label class="dropzone">
+        XLSX 파일 선택
         <input id="initialCsvInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
       </label>
       <div class="csv-help">
@@ -149,7 +213,13 @@
 
   <dialog id="editModal" class="modal">
     <form id="editForm" class="modal-card">
-      <div class="section-title"><span>수정</span><div><h2>임직원 정보 수정</h2><p>Pool에 저장된 초기값과 랜덤 포함 여부를 수정합니다.</p></div></div>
+      <div class="section-title">
+        <span>수정</span>
+        <div>
+          <h2>임직원 정보 수정</h2>
+          <p>Pool에 저장된 초기값과 랜덤 포함 여부를 수정합니다.</p>
+        </div>
+      </div>
       <input id="editId" type="hidden" />
       <label>이름<input id="editName" required /></label>
       <label>소속<input id="editDept" required /></label>
@@ -159,9 +229,16 @@
       <label class="check"><input id="editActive" type="checkbox" /> 활성여부: 이번 랜덤설정에 포함</label>
       <label>참여횟수<input id="editParticipationCount" type="number" min="0" step="1" /></label>
       <label>최근참여일<input id="editLastParticipationDate" type="date" /></label>
-      <div class="actions"><button type="button" id="cancelEditBtn" class="btn ghost">취소</button><button class="btn primary">저장</button></div>
+      <div class="actions">
+        <button type="button" id="cancelEditBtn" class="btn ghost">취소</button>
+        <button class="btn primary">저장</button>
+      </div>
     </form>
   </dialog>
+
+  <div class="copyright">
+    @ikkkki AT Paris
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script type="module" src="app.js"></script>
