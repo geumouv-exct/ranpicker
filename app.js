@@ -13,6 +13,10 @@ const employeeCollectionRef = () => collection(db, "workspaces", workspaceId, "e
 const employeeDocRef = (id) => doc(db, "workspaces", workspaceId, "employees", id);
 const projectCollectionRef = () => collection(db, "workspaces", workspaceId, "projects");
 const projectDocRef = (id) => doc(db, "workspaces", workspaceId, "projects", id);
+const legacyProjectCollectionRef = () => collection(db, "projects");
+const legacyProjectDocRef = (id) => doc(db, "projects", id);
+const userProjectCollectionRef = () => state.user ? collection(db, "users", state.user.uid, "projects") : null;
+const userProjectDocRef = (id) => state.user ? doc(db, "users", state.user.uid, "projects", id) : null;
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -154,15 +158,19 @@ function startRealtimeSync(){
   state.unsubProjects = onSnapshot(
     projectCollectionRef(),
     (snap) => {
-      state.projects = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => {
-          const aTime = timestampToMillis(a.updatedAt) || timestampToMillis(a.updatedAtClient) || timestampToMillis(a.createdAt) || timestampToMillis(a.createdAtClient) || 0;
-          const bTime = timestampToMillis(b.updatedAt) || timestampToMillis(b.updatedAtClient) || timestampToMillis(b.createdAt) || timestampToMillis(b.createdAtClient) || 0;
-          return bTime - aTime;
-        });
+      const workspaceProjects = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const merged = new Map((state.projects || []).map(p => [p.id, p]));
+      workspaceProjects.forEach(p => {
+        const existing = merged.get(p.id);
+        if(!existing || projectTime(p) >= projectTime(existing)) merged.set(p.id, p);
+      });
+      state.projects = Array.from(merged.values()).sort((a, b) => projectTime(b) - projectTime(a));
       cacheProjects();
       renderProjects();
+      // 다른 기기/이전 버전에서 저장된 이력을 놓치지 않도록 서버의 모든 이력 저장 위치를 한 번 더 병합합니다.
+      loadProjects(document.querySelector(".project-item.active")?.dataset.project || null).catch(error => {
+        console.warn("이력관리 병합 동기화 실패", error);
+      });
     },
     (error) => {
       console.error("projects 실시간 동기화 오류", error);
@@ -239,16 +247,37 @@ async function loadEmployees(){
   renderPool();
 }
 async function loadProjects(selectedProjectId = null){
-  const snap = await getDocsFromServer(projectCollectionRef()).catch(() => getDocs(projectCollectionRef()));
-  state.projects = snap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => {
-      const aTime = timestampToMillis(a.updatedAt) || timestampToMillis(a.updatedAtClient) || timestampToMillis(a.createdAt) || timestampToMillis(a.createdAtClient) || 0;
-      const bTime = timestampToMillis(b.updatedAt) || timestampToMillis(b.updatedAtClient) || timestampToMillis(b.createdAt) || timestampToMillis(b.createdAtClient) || 0;
-      return bTime - aTime;
+  const sources = [
+    getDocsFromServer(projectCollectionRef()).catch(() => getDocs(projectCollectionRef())),
+    getDocsFromServer(legacyProjectCollectionRef()).catch(() => getDocs(legacyProjectCollectionRef()))
+  ];
+  const userRef = userProjectCollectionRef();
+  if(userRef){
+    sources.push(getDocsFromServer(userRef).catch(() => getDocs(userRef)));
+  }
+
+  const results = await Promise.allSettled(sources);
+  const merged = new Map();
+  results.forEach(result => {
+    if(result.status !== "fulfilled" || !result.value) return;
+    result.value.docs.forEach(d => {
+      const data = { id: d.id, ...d.data() };
+      const existing = merged.get(d.id);
+      if(!existing || projectTime(data) >= projectTime(existing)) merged.set(d.id, data);
     });
+  });
+
+  state.projects = Array.from(merged.values()).sort((a, b) => projectTime(b) - projectTime(a));
   cacheProjects();
   renderProjects(selectedProjectId);
+}
+
+function projectTime(project){
+  return timestampToMillis(project?.updatedAt)
+    || timestampToMillis(project?.updatedAtClient)
+    || timestampToMillis(project?.createdAt)
+    || timestampToMillis(project?.createdAtClient)
+    || 0;
 }
 
 function timestampToMillis(value){
@@ -544,12 +573,39 @@ function shuffle(arr){
   }
   return arr;
 }
+
+function findEmployeeFromPool(person){
+  const key = employeeRandomKey(person);
+  return state.employees.find(e => employeeRandomKey(e) === key)
+    || state.employees.find(e => person.email && e.email && String(e.email).toLowerCase() === String(person.email).toLowerCase())
+    || state.employees.find(e => person.name && e.name && String(e.name).trim() === String(person.name).trim())
+    || null;
+}
+
+function mergeWithPoolEmployee(person){
+  const pool = findEmployeeFromPool(person);
+  if(!pool) return person || {};
+  return {
+    ...(person || {}),
+    name: pool.name || person.name || '',
+    department: pool.department || person.department || '',
+    title: pool.title || person.title || '',
+    phone: pool.phone || person.phone || '',
+    email: pool.email || person.email || '',
+    lastParticipationDate: pool.lastParticipationDate || person.lastParticipationDate || '',
+    participationCount: pool.participationCount ?? person.participationCount ?? 0
+  };
+}
+
 function renderResult(selected, projectName, evaluationDate, eligibleCount){
   els.resultMeta.textContent = `${projectName} · 평가일 ${evaluationDate} · 조건 충족 가능인원 ${eligibleCount}명`;
-  els.resultBody.innerHTML = selected.map(e => `<tr>
-    <td class="center"><input type="checkbox" class="final-decision-check" data-person="${escapeHtml(employeeRandomKey(e))}" title="사업진행 불가 시 체크" /></td>
-    <td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone)}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td>
-  </tr>`).join("");
+  els.resultBody.innerHTML = selected.map(original => {
+    const e = mergeWithPoolEmployee(original);
+    return `<tr>
+    <td class="center"><input type="checkbox" class="final-decision-check" data-person="${escapeHtml(employeeRandomKey(original))}" title="사업진행 불가 시 체크" /></td>
+    <td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone || '-')}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td>
+  </tr>`;
+  }).join("");
 }
 
 function getCheckedFinalDecisionKeys(){
@@ -679,11 +735,7 @@ function upsertProjectLocally(project){
   const idx = state.projects.findIndex(p => p.id === project.id);
   if(idx >= 0) state.projects[idx] = { ...state.projects[idx], ...project };
   else state.projects.unshift(project);
-  state.projects.sort((a, b) => {
-    const aTime = timestampToMillis(a.updatedAt) || timestampToMillis(a.createdAt) || 0;
-    const bTime = timestampToMillis(b.updatedAt) || timestampToMillis(b.createdAt) || 0;
-    return bTime - aTime;
-  });
+  state.projects.sort((a, b) => projectTime(b) - projectTime(a));
   cacheProjects();
   renderProjects(project.id);
   showProject(project.id);
@@ -765,15 +817,33 @@ async function saveCurrentResult({ stayOnRandomTab = false } = {}){
 
     await batch.commit();
 
+    // 같은 계정으로 다른 기기에서 접속했을 때도 이력이 보이도록 사용자별 백업 경로와 이전 버전 경로에도 복제합니다.
+    // 복제 실패가 주 저장 실패로 처리되지는 않지만, 콘솔에 원인을 남깁니다.
+    const projectServerPayload = {
+      projectName,
+      evaluationDate,
+      excludeDays,
+      pickCount,
+      selected: savedSelected,
+      conditionKey: localProjectData.conditionKey,
+      createdAtClient: localProjectData.createdAt,
+      updatedAtClient: nowMillis,
+      updatedAt: serverTimestamp(),
+      createdBy: localProjectData.createdBy,
+      updatedBy: localProjectData.updatedBy
+    };
+    const mirrors = [
+      setDoc(legacyProjectDocRef(projectId), projectServerPayload, { merge: true }).catch(error => console.warn("이전 버전 이력 경로 복제 실패", error))
+    ];
+    const userDoc = userProjectDocRef(projectId);
+    if(userDoc) mirrors.push(setDoc(userDoc, projectServerPayload, { merge: true }).catch(error => console.warn("사용자별 이력 경로 복제 실패", error)));
+    await Promise.allSettled(mirrors);
+
     // 서버에서 다시 읽어 실제 원격 저장 여부를 확인합니다. 여기서 실패하면 다른 기기 동기화가 보장되지 않습니다.
     const serverSaved = await getDocFromServer(projectDocRef(projectId));
     if(!serverSaved.exists()) throw new Error("Firebase 서버에 이력 문서가 확인되지 않았습니다.");
 
-    state.projects = nextProjects.sort((a, b) => {
-      const aTime = timestampToMillis(a.updatedAt) || timestampToMillis(a.createdAt) || 0;
-      const bTime = timestampToMillis(b.updatedAt) || timestampToMillis(b.createdAt) || 0;
-      return bTime - aTime;
-    });
+    state.projects = nextProjects.sort((a, b) => projectTime(b) - projectTime(a));
     cacheProjects();
     applyParticipationStatsLocally(state.projects);
     renderProjects(projectId);
@@ -820,5 +890,8 @@ function showProject(id){
   const p = state.projects.find(x => x.id === id); if(!p) return;
   els.historyMeta.textContent = `${p.projectName} · 평가일 ${p.evaluationDate} · 추출 ${p.pickCount}명 · 제외일수 ${p.excludeDays}일`;
   const selected = p.selected || [];
-  els.historyBody.innerHTML = selected.length ? selected.map(e => `<tr><td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone)}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">선정 결과가 없습니다.</td></tr>`;
+  els.historyBody.innerHTML = selected.length ? selected.map(original => {
+    const e = mergeWithPoolEmployee(original);
+    return `<tr><td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone || '-')}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">선정 결과가 없습니다.</td></tr>`;
 }
