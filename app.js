@@ -1,12 +1,18 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch, query, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { getFirestore, collection, doc, getDoc, getDocs, getDocFromServer, getDocsFromServer, setDoc, updateDoc, writeBatch, query, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { firebaseConfig, accessConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
+
+const workspaceId = accessConfig.workspaceId || "company";
+const employeeCollectionRef = () => collection(db, "workspaces", workspaceId, "employees");
+const employeeDocRef = (id) => doc(db, "workspaces", workspaceId, "employees", id);
+const projectCollectionRef = () => collection(db, "workspaces", workspaceId, "projects");
+const projectDocRef = (id) => doc(db, "workspaces", workspaceId, "projects", id);
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -17,13 +23,17 @@ const state = {
   projects: [],
   unsubEmployees: null,
   unsubProjects: null,
-  isSavingResult: false
+  isSavingResult: false,
+  employeesLoaded: false,
+  initialXlsxValid: false,
+  initialParsedEmployees: [],
+  legacyMigrationTried: false
 };
 
 const els = {
   loginBtn: $("loginBtn"), heroLoginBtn: $("heroLoginBtn"), guestLoginBtn: $("guestLoginBtn"), heroGuestLoginBtn: $("heroGuestLoginBtn"), logoutBtn: $("logoutBtn"), userInfo: $("userInfo"), lockedView: $("lockedView"), appView: $("appView"),
   readonlyNotice: $("readonlyNotice"), onboardingModal: $("onboardingModal"), initialCsvInput: $("initialCsvInput"), initialImportBtn: $("initialImportBtn"),
-  csvInput: $("csvInput"), poolBody: $("poolBody"), randomForm: $("randomForm"), resultBody: $("resultBody"), resultMeta: $("resultMeta"), saveResultBtn: $("saveResultBtn"),
+  csvInput: $("csvInput"), poolBody: $("poolBody"), randomForm: $("randomForm"), resultBody: $("resultBody"), resultMeta: $("resultMeta"), saveResultBtn: $("saveResultBtn"), replaceUnavailableBtn: $("replaceUnavailableBtn"),
   editModal: $("editModal"), editForm: $("editForm"), cancelEditBtn: $("cancelEditBtn"), projectList: $("projectList"), historyBody: $("historyBody"), historyMeta: $("historyMeta"), toast: $("toast")
 };
 
@@ -58,12 +68,12 @@ function setReadonly(disabled){
 }
 
 function cacheEmployees(){
-  try { localStorage.setItem("ranpicker_employees_cache", JSON.stringify(state.employees || [])); } catch (_) {}
+  try { localStorage.setItem(`ranpicker_employees_cache_${workspaceId}`, JSON.stringify(state.employees || [])); } catch (_) {}
 }
 
 function readCachedEmployees(){
   try {
-    const raw = localStorage.getItem("ranpicker_employees_cache");
+    const raw = localStorage.getItem(`ranpicker_employees_cache_${workspaceId}`);
     return raw ? JSON.parse(raw) : [];
   } catch (_) {
     return [];
@@ -71,15 +81,37 @@ function readCachedEmployees(){
 }
 
 function cacheProjects(){
-  try { localStorage.setItem("ranpicker_projects_cache", JSON.stringify(state.projects || [])); } catch (_) {}
+  try { localStorage.setItem(`ranpicker_projects_cache_${workspaceId}`, JSON.stringify(state.projects || [])); } catch (_) {}
 }
 
 function readCachedProjects(){
   try {
-    const raw = localStorage.getItem("ranpicker_projects_cache");
+    const raw = localStorage.getItem(`ranpicker_projects_cache_${workspaceId}`);
     return raw ? JSON.parse(raw) : [];
   } catch (_) {
     return [];
+  }
+}
+
+
+async function tryMigrateLegacyRootData(){
+  state.legacyMigrationTried = true;
+  try {
+    const [legacyEmployees, legacyProjects] = await Promise.all([
+      getDocs(query(collection(db, "employees"), orderBy("name"))).catch(() => null),
+      getDocs(collection(db, "projects")).catch(() => null)
+    ]);
+    const hasEmployees = legacyEmployees && !legacyEmployees.empty;
+    const hasProjects = legacyProjects && !legacyProjects.empty;
+    if(!hasEmployees && !hasProjects) return;
+
+    const batch = writeBatch(db);
+    legacyEmployees?.docs.forEach(d => batch.set(employeeDocRef(d.id), d.data(), { merge: true }));
+    legacyProjects?.docs.forEach(d => batch.set(projectDocRef(d.id), d.data(), { merge: true }));
+    await batch.commit();
+    toast("이전 버전의 저장 데이터를 새 영구 저장소로 옮겼습니다.");
+  } catch (error) {
+    console.warn("이전 데이터 이전 실패", error);
   }
 }
 
@@ -94,13 +126,17 @@ function startRealtimeSync(){
   stopRealtimeSync();
 
   state.unsubEmployees = onSnapshot(
-    query(collection(db, "employees"), orderBy("name")),
+    query(employeeCollectionRef(), orderBy("name")),
     (snap) => {
       state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if(state.employees.length) cacheEmployees();
       renderPool();
       setReadonly(!state.canEdit);
-      if(state.canEdit && state.employees.length === 0) els.onboardingModal.showModal();
+      state.employeesLoaded = true;
+      if(state.canEdit && state.employees.length === 0 && !state.legacyMigrationTried){
+        tryMigrateLegacyRootData();
+      }
+      handleOnboardingVisibility();
     },
     (error) => {
       console.error("employees 실시간 동기화 오류", error);
@@ -116,7 +152,7 @@ function startRealtimeSync(){
   );
 
   state.unsubProjects = onSnapshot(
-    collection(db, "projects"),
+    projectCollectionRef(),
     (snap) => {
       state.projects = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
@@ -140,6 +176,20 @@ function startRealtimeSync(){
       }
     }
   );
+
+  refreshFromServerOnce().catch(error => {
+    console.warn("서버 직접 불러오기 실패", error);
+  });
+}
+
+async function refreshFromServerOnce(){
+  try {
+    await Promise.all([loadEmployees(), loadProjects()]);
+    state.employeesLoaded = true;
+    handleOnboardingVisibility();
+  } catch (error) {
+    console.warn("서버 직접 동기화 실패", error);
+  }
 }
 
 async function login(){ await signInWithPopup(auth, provider); }
@@ -169,19 +219,27 @@ onAuthStateChanged(auth, async (user) => {
     ? `<span class="guest-avatar">G</span><span>${escapeHtml(label)}</span>`
     : `<img src="${escapeHtml(user.photoURL || '')}" alt="프로필"/><span>${escapeHtml(label)}</span>`;
   els.userInfo.classList.remove("hidden");
+  state.employeesLoaded = false;
+  state.initialXlsxValid = false;
+  state.initialParsedEmployees = [];
+  state.legacyMigrationTried = false;
   setReadonly(!state.canEdit);
+  if(state.canEdit && els.onboardingModal && !els.onboardingModal.open){
+    els.onboardingModal.showModal();
+  }
   startRealtimeSync();
 });
 
 async function loadAll(){ await Promise.all([loadEmployees(), loadProjects()]); }
 async function loadEmployees(){
-  const snap = await getDocs(query(collection(db, "employees"), orderBy("name")));
+  const q = query(employeeCollectionRef(), orderBy("name"));
+  const snap = await getDocsFromServer(q).catch(() => getDocs(q));
   state.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if(state.employees.length) cacheEmployees();
   renderPool();
 }
 async function loadProjects(selectedProjectId = null){
-  const snap = await getDocs(collection(db, "projects"));
+  const snap = await getDocsFromServer(projectCollectionRef()).catch(() => getDocs(projectCollectionRef()));
   state.projects = snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
     .sort((a, b) => {
@@ -249,29 +307,103 @@ async function parseXlsx(file){
   return parseEmployeesFromRows(rows);
 }
 
-async function importXlsxFromInput(input){
-  if(!state.canEdit) return toast("회사 메일 사용자만 수정할 수 있습니다.");
+async function importXlsxFromInput(input, { closeOnSuccess = false, requireValidForModal = false } = {}){
+  if(!state.canEdit) { toast("회사 메일 사용자만 수정할 수 있습니다."); return false; }
   const file = input.files?.[0];
-  if(!file) return toast("XLSX 파일을 선택해주세요.");
-  if(!/\.(xlsx|xls)$/i.test(file.name)) return toast("엑셀 파일(.xlsx 또는 .xls)만 업로드할 수 있습니다.");
+  if(!file){ toast("XLSX 파일을 선택해주세요."); return false; }
+  if(!/\.(xlsx|xls)$/i.test(file.name)){ toast("엑셀 파일(.xlsx 또는 .xls)만 업로드할 수 있습니다."); return false; }
 
   try {
     const employees = await parseXlsx(file);
-    if(employees.length === 0) return toast("읽을 수 있는 임직원 데이터가 없습니다. A열 이름, B열 소속, C열 직위, D열 이메일 순서인지 확인해주세요.");
+    if(employees.length === 0){
+      state.initialXlsxValid = false;
+      state.initialParsedEmployees = [];
+      toast("읽을 수 있는 임직원 데이터가 없습니다. A열 이름, B열 소속, C열 직위, D열 이메일 순서인지 확인해주세요.");
+      return false;
+    }
+
+    state.initialXlsxValid = true;
+    state.initialParsedEmployees = employees;
+
     const batch = writeBatch(db);
     employees.forEach(emp => {
       const safeId = (emp.email || emp.name).toLowerCase().replace(/[^a-z0-9가-힣_-]/gi, "_").slice(0, 120);
-      batch.set(doc(db, "employees", safeId), emp, { merge: true });
+      batch.set(employeeDocRef(safeId), emp, { merge: true });
     });
     await batch.commit();
-    toast(`${employees.length}명의 임직원 정보를 Firestore에 영구 저장했습니다.`);
-    await loadEmployees();
+
+    // 다른 컴퓨터/휴대폰에서도 보이도록 서버에 실제로 반영됐는지 한 번 더 확인합니다.
+    // 서버 확인에 실패하면 팝업을 닫지 않고 사용자에게 Firebase 연결/규칙 오류를 알려줍니다.
+    await getDocsFromServer(query(employeeCollectionRef(), orderBy("name")));
+
+    state.employees = employees
+      .map(emp => ({ ...emp, id: (emp.email || emp.name).toLowerCase().replace(/[^a-z0-9가-힣_-]/gi, "_").slice(0, 120) }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+    cacheEmployees();
+    renderPool();
+    toast(`${employees.length}명의 임직원 정보를 Firebase 서버에 영구 저장했습니다.`);
+
+    if(closeOnSuccess && els.onboardingModal.open) els.onboardingModal.close();
+    await loadEmployees().catch(() => {});
+    return true;
   } catch (error) {
+    console.error(error);
+    state.initialXlsxValid = false;
+    state.initialParsedEmployees = [];
+    toast(error.message || "엑셀 파일을 읽는 중 오류가 발생했습니다.");
+    return false;
+  }
+}
+
+function handleOnboardingVisibility(){
+  if(!state.canEdit || !els.onboardingModal) return;
+  if(!state.employeesLoaded) return;
+  if(state.employees.length > 0){
+    if(els.onboardingModal.open) els.onboardingModal.close();
+    return;
+  }
+  if(!els.onboardingModal.open) els.onboardingModal.showModal();
+}
+
+els.onboardingModal.addEventListener("cancel", (ev) => {
+  if(state.canEdit && state.employees.length === 0){
+    ev.preventDefault();
+    toast("올바른 XLSX 파일을 저장해야 초기 설정을 완료할 수 있습니다.");
+  }
+});
+
+els.initialCsvInput.onchange = async () => {
+  const file = els.initialCsvInput.files?.[0];
+  state.initialXlsxValid = false;
+  state.initialParsedEmployees = [];
+  if(!file) return;
+  if(!/\.(xlsx|xls)$/i.test(file.name)){
+    toast("엑셀 파일(.xlsx 또는 .xls)만 선택해주세요.");
+    return;
+  }
+  try{
+    const employees = await parseXlsx(file);
+    if(!employees.length){
+      toast("올바른 임직원 데이터가 없습니다. A열 이름, B열 소속, C열 직위, D열 이메일 순서인지 확인해주세요.");
+      return;
+    }
+    state.initialXlsxValid = true;
+    state.initialParsedEmployees = employees;
+    toast(`${employees.length}명의 임직원 데이터를 확인했습니다. 초기값 저장을 눌러주세요.`);
+  }catch(error){
     console.error(error);
     toast(error.message || "엑셀 파일을 읽는 중 오류가 발생했습니다.");
   }
-}
-els.initialImportBtn.onclick = async () => { await importXlsxFromInput(els.initialCsvInput); els.onboardingModal.close(); };
+};
+
+els.initialImportBtn.onclick = async () => {
+  if(!state.initialXlsxValid){
+    toast("올바른 XLSX 파일을 먼저 선택해주세요.");
+    return;
+  }
+  const ok = await importXlsxFromInput(els.initialCsvInput, { closeOnSuccess: true, requireValidForModal: true });
+  if(!ok && !els.onboardingModal.open) els.onboardingModal.showModal();
+};
 els.csvInput.onchange = async () => { await importXlsxFromInput(els.csvInput); els.csvInput.value = ""; };
 
 function renderPool(){
@@ -293,7 +425,7 @@ els.editForm.onsubmit = async (ev) => {
   ev.preventDefault(); if(!state.canEdit) return toast("회사 메일 사용자만 수정할 수 있습니다.");
   const id = $("editId").value;
   const data = { name: $("editName").value.trim(), department: $("editDept").value.trim(), title: $("editTitle").value.trim(), phone: $("editPhone").value.trim(), email: $("editEmail").value.trim(), active: $("editActive").checked, participationCount: Number($("editParticipationCount").value || 0), lastParticipationDate: $("editLastParticipationDate").value || "" };
-  await updateDoc(doc(db,"employees", id), data); els.editModal.close(); toast("수정되었습니다."); await loadEmployees();
+  await updateDoc(employeeDocRef(id), data); els.editModal.close(); toast("수정되었습니다."); await loadEmployees();
 };
 
 els.randomForm.onsubmit = async (ev) => {
@@ -334,10 +466,15 @@ els.randomForm.onsubmit = async (ev) => {
     excludeDays: Number(excludeDays),
     pickCount: Number(pickCount),
     selected,
-    eligibleCount: eligible.length
+    eligible,
+    eligibleCount: eligible.length,
+    // 추가선정 과정에서 사업진행 불가로 체크된 사람은 누적 보관합니다.
+    // 같은 랜덤 결과 안에서 여러 번 추가선정을 눌러도 이전에 체크했던 사람은 다시 뽑히지 않습니다.
+    excludedFinalDecisionKeys: []
   };
   renderResult(selected, projectName, evaluationDate, eligible.length);
   els.saveResultBtn.classList.remove("hidden");
+  els.replaceUnavailableBtn.classList.remove("hidden");
 
   if(eligible.length === Number(pickCount)){
     toast("조건 충족 가능인원과 추출 인원 수가 같아서 다시 눌러도 같은 목록이 나옵니다.");
@@ -409,7 +546,55 @@ function shuffle(arr){
 }
 function renderResult(selected, projectName, evaluationDate, eligibleCount){
   els.resultMeta.textContent = `${projectName} · 평가일 ${evaluationDate} · 조건 충족 가능인원 ${eligibleCount}명`;
-  els.resultBody.innerHTML = selected.map(e => `<tr><td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone)}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td></tr>`).join("");
+  els.resultBody.innerHTML = selected.map(e => `<tr>
+    <td class="center"><input type="checkbox" class="final-decision-check" data-person="${escapeHtml(employeeRandomKey(e))}" title="사업진행 불가 시 체크" /></td>
+    <td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.department)}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.phone)}</td><td>${escapeHtml(e.lastParticipationDate || '-')}</td>
+  </tr>`).join("");
+}
+
+function getCheckedFinalDecisionKeys(){
+  return Array.from(document.querySelectorAll(".final-decision-check:checked"))
+    .map(input => input.dataset.person)
+    .filter(Boolean);
+}
+
+function replaceCheckedUnavailable(){
+  if(!state.pendingResult) return toast("먼저 랜덤 선정을 실행해주세요.");
+
+  const checkedKeys = new Set(getCheckedFinalDecisionKeys());
+  const replaceCount = checkedKeys.size;
+  if(replaceCount === 0) return toast("사업진행이 불가한 사람을 먼저 체크해주세요.");
+
+  const currentSelected = state.pendingResult.selected || [];
+  const previouslyExcludedKeys = new Set(state.pendingResult.excludedFinalDecisionKeys || []);
+
+  // 이번에 체크한 사람도 누적 제외 목록에 추가합니다.
+  // 따라서 추가선정을 여러 번 진행해도 이전에 체크했던 사람은 다시 선정 후보에 들어가지 않습니다.
+  checkedKeys.forEach(key => previouslyExcludedKeys.add(key));
+
+  const keptSelected = currentSelected.filter(e => !checkedKeys.has(employeeRandomKey(e)));
+
+  const keptSelectedKeys = new Set(keptSelected.map(employeeRandomKey));
+  const replacementPool = (state.pendingResult.eligible || []).filter(e => {
+    const key = employeeRandomKey(e);
+    if(previouslyExcludedKeys.has(key)) return false; // 이전/현재 체크자는 제외
+    if(keptSelectedKeys.has(key)) return false;      // 현재 최종 후보자는 중복 제외
+    return true;
+  });
+
+  if(replacementPool.length < replaceCount){
+    state.pendingResult.excludedFinalDecisionKeys = Array.from(previouslyExcludedKeys);
+    return alert(`추가선정 가능인원이 부족합니다. 필요한 인원: ${replaceCount}명, 가능인원: ${replacementPool.length}명`);
+  }
+
+  const additions = shuffle([...replacementPool]).slice(0, replaceCount);
+  state.pendingResult.selected = [...keptSelected, ...additions];
+  state.pendingResult.excludedFinalDecisionKeys = Array.from(previouslyExcludedKeys);
+
+  renderResult(state.pendingResult.selected, state.pendingResult.projectName, state.pendingResult.evaluationDate, state.pendingResult.eligibleCount);
+  els.saveResultBtn.classList.remove("hidden");
+  els.replaceUnavailableBtn.classList.remove("hidden");
+  toast(`${replaceCount}명을 추가선정했습니다. 이전에 체크한 사람은 다시 선정되지 않습니다.`);
 }
 function normalizeProjectKeyPart(value){
   return String(value ?? "").trim().replace(/\s+/g, " ");
@@ -430,12 +615,10 @@ function makeProjectHistoryId({ projectName, evaluationDate, excludeDays, pickCo
   return `project_${(hash >>> 0).toString(16)}`;
 }
 
-function recomputeEmployeeParticipation(){
-  // Firestore가 offline 상태여도 랜덤 버튼이 멈추지 않도록
-  // 화면/브라우저 백업을 먼저 갱신하고, 서버 동기화는 백그라운드로만 시도합니다.
+function calculateParticipationStats(projects){
   const stats = new Map();
 
-  (state.projects || []).forEach(project => {
+  (projects || []).forEach(project => {
     const evaluationDate = project.evaluationDate || "";
     (project.selected || []).forEach(person => {
       const keys = [person.employeeId, person.email].filter(Boolean);
@@ -450,6 +633,11 @@ function recomputeEmployeeParticipation(){
     });
   });
 
+  return stats;
+}
+
+function applyParticipationStatsLocally(projects){
+  const stats = calculateParticipationStats(projects);
   state.employees = (state.employees || []).map(employee => {
     const byId = stats.get(employee.id);
     const byEmail = employee.email ? stats.get(employee.email) : null;
@@ -462,12 +650,19 @@ function recomputeEmployeeParticipation(){
   });
   cacheEmployees();
   renderPool();
+  return stats;
+}
+
+function recomputeEmployeeParticipation(){
+  // Firestore가 offline 상태여도 랜덤 버튼이 멈추지 않도록
+  // 화면/브라우저 백업을 먼저 갱신하고, 서버 동기화는 백그라운드로만 시도합니다.
+  const stats = applyParticipationStatsLocally(state.projects || []);
 
   try {
     const batch = writeBatch(db);
     state.employees.forEach(employee => {
       if(!employee.id) return;
-      batch.set(doc(db, "employees", employee.id), {
+      batch.set(employeeDocRef(employee.id), {
         participationCount: Number(employee.participationCount || 0),
         lastParticipationDate: employee.lastParticipationDate || ""
       }, { merge: true });
@@ -499,11 +694,13 @@ async function saveCurrentResult({ stayOnRandomTab = false } = {}){
   if(state.isSavingResult) return;
   state.isSavingResult = true;
   const drawBtn = $("drawBtn");
+  if(drawBtn) drawBtn.setAttribute("disabled", "disabled");
 
   const { projectName, evaluationDate, excludeDays, pickCount, selected } = state.pendingResult;
   const projectId = makeProjectHistoryId({ projectName, evaluationDate, excludeDays, pickCount });
   const nowMillis = Date.now();
   const existedLocally = state.projects.some(p => p.id === projectId);
+  const previousProject = state.projects.find(p => p.id === projectId);
   const savedSelected = selected.map(e => ({
     employeeId: e.id,
     name: e.name,
@@ -522,33 +719,26 @@ async function saveCurrentResult({ stayOnRandomTab = false } = {}){
     pickCount,
     selected: savedSelected,
     conditionKey: `${normalizeProjectKeyPart(projectName)}|${evaluationDate}|${pickCount}|${excludeDays}`,
-    createdAt: state.projects.find(p => p.id === projectId)?.createdAt || nowMillis,
+    createdAt: previousProject?.createdAt || nowMillis,
     updatedAt: nowMillis,
-    createdBy: state.projects.find(p => p.id === projectId)?.createdBy || state.user.email || "guest",
+    createdBy: previousProject?.createdBy || state.user.email || "guest",
     updatedBy: state.user.email || "guest"
   };
 
-  try {
-    // 먼저 화면과 브라우저 백업에 저장합니다. 같은 조건은 같은 projectId를 쓰므로 마지막 값으로 교체됩니다.
-    upsertProjectLocally(localProjectData);
-    recomputeEmployeeParticipation();
-    state.pendingResult = null;
-    els.saveResultBtn.classList.add("hidden");
-    document.querySelector('[data-tab="historyTab"]')?.click();
-    toast(existedLocally ? "같은 조건의 이전 이력을 마지막 결과로 교체했습니다." : "랜덤 결과를 이력관리에 저장했습니다.");
-  } catch (error) {
-    console.error(error);
-    toast("화면 저장 중 오류가 발생했습니다.");
-  } finally {
-    // Firestore 서버 응답을 기다리지 않고 바로 다음 랜덤 선정을 할 수 있게 풀어줍니다.
-    state.isSavingResult = false;
-    if(drawBtn && state.canEdit) drawBtn.removeAttribute("disabled");
-  }
+  const nextProjects = (() => {
+    const copy = [...(state.projects || [])];
+    const idx = copy.findIndex(p => p.id === projectId);
+    if(idx >= 0) copy[idx] = { ...copy[idx], ...localProjectData };
+    else copy.unshift(localProjectData);
+    return copy;
+  })();
 
-  // Firestore 저장은 백그라운드로 시도합니다. offline이어도 랜덤 설정 버튼을 막지 않습니다.
   try {
-    const projectRef = doc(db, "projects", projectId);
-    setDoc(projectRef, {
+    // 휴대폰/다른 컴퓨터에서도 같은 계정으로 바로 보이도록 Firebase 서버 저장을 먼저 완료합니다.
+    // 저장 실패 시 로컬 화면에만 저장됐다고 착각하지 않도록 이력관리 반영을 중단합니다.
+    const stats = calculateParticipationStats(nextProjects);
+    const batch = writeBatch(db);
+    batch.set(projectDocRef(projectId), {
       projectName,
       evaluationDate,
       excludeDays,
@@ -560,12 +750,46 @@ async function saveCurrentResult({ stayOnRandomTab = false } = {}){
       updatedAt: serverTimestamp(),
       createdBy: localProjectData.createdBy,
       updatedBy: localProjectData.updatedBy
-    }, { merge: true }).catch(error => {
-      console.warn("이력 Firestore 백그라운드 저장 실패", error);
-      toast("이력은 화면에 저장됐지만 Firebase 서버 동기화가 지연되었습니다.");
+    }, { merge: true });
+
+    state.employees.forEach(employee => {
+      if(!employee.id) return;
+      const byId = stats.get(employee.id);
+      const byEmail = employee.email ? stats.get(employee.email) : null;
+      const next = byId || byEmail || { count: 0, lastDate: "" };
+      batch.set(employeeDocRef(employee.id), {
+        participationCount: Number(next.count || 0),
+        lastParticipationDate: next.lastDate || ""
+      }, { merge: true });
     });
+
+    await batch.commit();
+
+    // 서버에서 다시 읽어 실제 원격 저장 여부를 확인합니다. 여기서 실패하면 다른 기기 동기화가 보장되지 않습니다.
+    const serverSaved = await getDocFromServer(projectDocRef(projectId));
+    if(!serverSaved.exists()) throw new Error("Firebase 서버에 이력 문서가 확인되지 않았습니다.");
+
+    state.projects = nextProjects.sort((a, b) => {
+      const aTime = timestampToMillis(a.updatedAt) || timestampToMillis(a.createdAt) || 0;
+      const bTime = timestampToMillis(b.updatedAt) || timestampToMillis(b.createdAt) || 0;
+      return bTime - aTime;
+    });
+    cacheProjects();
+    applyParticipationStatsLocally(state.projects);
+    renderProjects(projectId);
+    showProject(projectId);
+
+    state.pendingResult = null;
+    els.saveResultBtn.classList.add("hidden");
+    els.replaceUnavailableBtn.classList.add("hidden");
+    document.querySelector('[data-tab="historyTab"]')?.click();
+    toast(existedLocally ? "같은 조건의 이전 이력을 마지막 결과로 서버에 저장했습니다." : "랜덤 결과를 Firebase 서버와 이력관리에 저장했습니다.");
   } catch (error) {
-    console.warn("이력 Firestore 저장 준비 실패", error);
+    console.error("서버 저장 실패", error);
+    toast("서버 저장에 실패했습니다. Firebase 규칙, 인터넷 연결, 로그인 계정을 확인해주세요. 다른 기기에는 아직 반영되지 않았습니다.");
+  } finally {
+    state.isSavingResult = false;
+    if(drawBtn && state.canEdit) drawBtn.removeAttribute("disabled");
   }
 }
 
@@ -573,6 +797,7 @@ els.saveResultBtn.onclick = () => {
   if(!state.pendingResult) return toast("먼저 랜덤 선정을 실행해주세요.");
   saveCurrentResult();
 };
+els.replaceUnavailableBtn.onclick = replaceCheckedUnavailable;
 
 function renderProjects(selectedProjectId = null){
   if(!selectedProjectId){
